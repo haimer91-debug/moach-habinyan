@@ -1,0 +1,29 @@
+# Secrets — never commit
+.env
+.streamlit/secrets.toml
+
+# PDF libraries — too large / copyrighted
+המפרט הכללי הספר הכחול/
+תקנים ישראלים/
+
+# Outputs & temp
+פלטים/
+temp_session/
+מנהל_פרויקט/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# PDF index cache (rebuilds locally)
+standards/_pdf_index_cache.json
+
+# Windows / IDE
+Thumbs.db
+.DS_Store
+*.bat
+.claude/

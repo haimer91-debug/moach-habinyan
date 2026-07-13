@@ -11,7 +11,6 @@ import streamlit as st
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="מוח הבנייה",
     page_icon="🏗️",
@@ -23,8 +22,7 @@ st.set_page_config(
 st.markdown("""
 <style>
 html, body, [data-testid="stAppViewContainer"], .stApp {
-    background-color: #0d1117 !important;
-    color: #c9d1d9 !important;
+    background-color: #0d1117 !important; color: #c9d1d9 !important;
 }
 [data-testid="stHeader"] { background-color: #0d1117 !important; }
 [data-testid="stSidebar"] { background-color: #161b22 !important; direction: rtl; }
@@ -79,10 +77,6 @@ textarea, input[type="text"] {
     font-size: 16px !important;
     direction: rtl !important;
 }
-textarea:focus, input:focus {
-    border-color: #388bfd !important;
-    box-shadow: 0 0 0 2px #388bfd30 !important;
-}
 
 /* Chat input bar */
 [data-testid="stChatInput"] {
@@ -91,15 +85,49 @@ textarea:focus, input:focus {
     border-radius: 24px !important;
     direction: rtl !important;
 }
-[data-testid="stChatInput"] textarea { border: none !important; direction: rtl !important; }
-
-/* Upload area */
-[data-testid="stFileUploadDropzone"] {
-    background-color: #161b22 !important;
-    border: 1px dashed #30363d !important;
-    border-radius: 8px !important;
-    padding: 6px !important;
+[data-testid="stChatInput"] textarea {
+    border: none !important; direction: rtl !important;
 }
+
+/* ── Inline 📎 file uploader — floats at bottom-left next to chat input ── */
+section[data-testid="stFileUploader"] {
+    position: fixed !important;
+    bottom: 14px !important;
+    left: max(10px, calc(50% - 395px)) !important;
+    z-index: 999 !important;
+    width: auto !important;
+}
+[data-testid="stFileUploaderDropzoneInstructions"] { display: none !important; }
+[data-testid="stFileUploadDropzone"] {
+    border: 1px solid #30363d !important;
+    border-radius: 22px !important;
+    background: #21262d !important;
+    min-height: 0 !important;
+    padding: 7px 14px 7px 10px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    cursor: pointer !important;
+    width: auto !important;
+    white-space: nowrap !important;
+}
+[data-testid="stFileUploadDropzone"] span { display: none !important; }
+[data-testid="stFileUploadDropzone"]::before {
+    content: "📎";
+    font-size: 17px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+[data-testid="stFileUploadDropzone"] button {
+    background: transparent !important;
+    border: none !important;
+    color: #8b949e !important;
+    font-size: 0.78em !important;
+    padding: 0 !important;
+    cursor: pointer !important;
+    white-space: nowrap !important;
+}
+[data-testid="stFileUploadDropzone"] button:hover { color: #58a6ff !important; }
 
 hr { border-color: #30363d !important; }
 .stCaption, small { color: #8b949e !important; }
@@ -117,11 +145,24 @@ hr { border-color: #30363d !important; }
 [data-testid="stChatMessage"] ul,
 [data-testid="stChatMessage"] ol { margin-top: 0.3em !important; }
 
-/* Sidebar conversation buttons */
 [data-testid="stSidebar"] .stButton button {
     text-align: right !important; direction: rtl !important;
     font-size: 0.85em !important; overflow: hidden !important;
     text-overflow: ellipsis !important; white-space: nowrap !important;
+}
+
+/* Pending image chip */
+.img-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 4px 8px;
+    font-size: 0.82em;
+    color: #8b949e;
+    margin-bottom: 6px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -136,7 +177,7 @@ try:
 except Exception:
     pass
 
-# ── Anthropic client ───────────────────────────────────────────────────────────
+# ── Clients & warm-up ──────────────────────────────────────────────────────────
 @st.cache_resource
 def get_client():
     import anthropic
@@ -158,21 +199,20 @@ warm_pdf_index()
 @st.cache_resource
 def _load_kb():
     try:
-        from standards.engineering_kb import COSTS_2026, STRUCTURAL_RC
+        from standards.engineering_kb import COSTS_2026
         from standards.professional_kb import QUANTITY_SURVEYING
-        return COSTS_2026, QUANTITY_SURVEYING, STRUCTURAL_RC
+        return COSTS_2026, QUANTITY_SURVEYING
     except Exception:
-        return "", "", ""
+        return "", ""
 
-COSTS_2026, QUANTITY_SURVEYING, STRUCTURAL_RC = _load_kb()
+COSTS_2026, QUANTITY_SURVEYING = _load_kb()
 
-# ── System prompt ──────────────────────────────────────────────────────────────
 _SYSTEM = f"""\
 אתה מוח הבנייה — עוזר AI מקצועי לפיקוח בנייה בישראל.
 
 אתה בקיא ב:
 • תקנות תכנון ובנייה — גובה, חניה, נגישות, רישוי, שימוש חורג
-• תקנים ישראליים (ת"י) — בטון ת"י 118/466, ברזל, אינסטלציה, חשמל, בידוד, מעקות, עמידות רעש
+• תקנים ישראליים (ת"י) — בטון ת"י 118/466, ברזל, אינסטלציה, חשמל, בידוד, מעקות
 • המפרט הכחול — 51 פרקי ביצוע ופיקוח
 • הנדסת קונסטרוקציה: לוחות, קורות, עמודים, מרפסות, יסודות
 • איטום, ניקוז, גמר: ריצוף, טיח, צביעה, חיפוי
@@ -190,13 +230,11 @@ _SYSTEM = f"""\
 • חשב כמויות בדיוק (הראה נוסחה ומספרים)
 • תן מחירים בשקלים (₪) עם טווח מינ'–מקס' לפי הטבלאות שלהלן
 • פרט לפי פריטי עבודה
-• ציין מה לא כלול בהערכה
 
 כשמשתמש מבקש דוח ביקורת:
 • פרמט מקצועי: נושא, ממצאים, הנחיות תיקון, בסיס תקני, סטטוס
 
 ענה תמיד בעברית. היה ישיר, מדויק, מקצועי.
-אל תמציא מספרים — השתמש בטבלאות המחירים שסופקו.
 
 {COSTS_2026}
 
@@ -211,7 +249,8 @@ def load_convos():
         try:
             with open(CONVOS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception: pass
+        except Exception:
+            pass
     return []
 
 def save_convos(convos):
@@ -219,7 +258,17 @@ def save_convos(convos):
     try:
         with open(CONVOS_FILE, "w", encoding="utf-8") as f:
             json.dump(convos, f, ensure_ascii=False, indent=2)
-    except Exception: pass
+    except Exception:
+        pass
+
+def _serialisable(msgs):
+    out = []
+    for m in msgs:
+        entry = {"role": m.get("role", "user"), "content": m.get("content", "")}
+        if m.get("image_label"):
+            entry["image_label"] = m["image_label"]
+        out.append(entry)
+    return out
 
 def auto_save():
     msgs = st.session_state.messages
@@ -227,34 +276,29 @@ def auto_save():
         return
     convos = load_convos()
     cid = st.session_state.active_convo_id
-    first_user = next((m["content"] for m in msgs if m["role"] == "user"), "")
+    first_user = next((m["content"] for m in msgs if m.get("role") == "user"), "")
     title = (first_user[:50] + "…") if len(first_user) > 50 else first_user
     now = datetime.datetime.now().isoformat()
+    serialised = _serialisable(msgs)
 
     if cid:
         for c in convos:
             if c["id"] == cid:
-                c["messages"] = _serialisable(msgs)
+                c["messages"] = serialised
                 c["title"] = title
                 c["updated_at"] = now
                 save_convos(convos)
                 return
+
+    # New conversation
     cid = str(uuid.uuid4())
     st.session_state.active_convo_id = cid
-    convos.insert(0, {"id": cid, "title": title,
-                      "messages": _serialisable(msgs),
-                      "created_at": now, "updated_at": now})
+    convos.insert(0, {
+        "id": cid, "title": title,
+        "messages": serialised,
+        "created_at": now, "updated_at": now,
+    })
     save_convos(convos)
-
-def _serialisable(msgs):
-    """Strip binary image data before saving to JSON."""
-    out = []
-    for m in msgs:
-        entry = {"role": m["role"], "content": m["content"]}
-        if m.get("image_label"):
-            entry["image_label"] = m["image_label"]
-        out.append(entry)
-    return out
 
 # ── Session state ──────────────────────────────────────────────────────────────
 if "messages" not in st.session_state:
@@ -262,9 +306,9 @@ if "messages" not in st.session_state:
 if "active_convo_id" not in st.session_state:
     st.session_state.active_convo_id = None
 if "pending_image" not in st.session_state:
-    st.session_state.pending_image = None      # bytes
+    st.session_state.pending_image = None
 if "pending_image_type" not in st.session_state:
-    st.session_state.pending_image_type = None # e.g. "image/jpeg"
+    st.session_state.pending_image_type = None
 if "img_key" not in st.session_state:
     st.session_state.img_key = 0
 
@@ -276,29 +320,32 @@ def export_txt() -> str:
     ts = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
     lines = [f"שיחה עם מוח הבנייה — {ts}", "=" * 50, ""]
     for m in st.session_state.messages:
-        role = "אני" if m["role"] == "user" else "מוח הבנייה"
-        lines += [f"[{role}]", m["content"], ""]
+        role = "אני" if m.get("role") == "user" else "מוח הבנייה"
+        lines += [f"[{role}]", m.get("content", ""), ""]
     return "\n".join(lines)
 
-def call_brain(client, history, user_text, image_bytes=None, image_mime=None):
-    """Call Claude with full conversation history + optional image."""
+def call_brain(client, prev_messages, user_text, image_bytes=None, image_mime=None):
+    """prev_messages = conversation history BEFORE the new message."""
     api_msgs = []
-    for m in history[:-1]:   # everything before the new user message
-        api_msgs.append({"role": m["role"], "content": m["content"]})
+    for m in prev_messages:
+        role = m.get("role", "user")
+        content = m.get("content", "")
+        if role in ("user", "assistant") and content:
+            api_msgs.append({"role": role, "content": content})
 
-    # Build user content
+    # New user message (with optional image)
     if image_bytes:
         b64 = base64.standard_b64encode(image_bytes).decode()
-        content = [
+        user_content = [
             {"type": "image",
              "source": {"type": "base64", "media_type": image_mime, "data": b64}},
             {"type": "text",
              "text": user_text or "נתח את התמונה מנקודת מבט מפקח בנייה. זהה ליקויים, חריגות, מצב הביצוע."},
         ]
     else:
-        content = user_text
+        user_content = user_text
 
-    api_msgs.append({"role": "user", "content": content})
+    api_msgs.append({"role": "user", "content": user_content})
 
     resp = client.messages.create(
         model="claude-sonnet-4-6",
@@ -333,7 +380,8 @@ with st.sidebar:
                 type="primary" if is_active else "secondary",
                 help=date_str,
             ):
-                st.session_state.messages = list(c["messages"])
+                loaded = c.get("messages", [])
+                st.session_state.messages = list(loaded)
                 st.session_state.active_convo_id = c["id"]
                 st.session_state.pending_image = None
                 st.session_state.img_key += 1
@@ -350,11 +398,10 @@ with st.sidebar:
     st.markdown("### ℹ️ אודות")
     st.caption(
         "מוח הבנייה — עוזר AI לפיקוח בנייה.\n"
-        "מבוסס על:\n"
         "• המפרט הכחול (51 פרקים)\n"
         "• תקנים ישראליים סרוקים\n"
         "• תקנות תכנון ובנייה\n"
-        "• בסיס ידע הנדסי + מחירוני 2025-2026\n"
+        "• מחירוני בנייה 2025-2026\n"
         "• Claude Vision\n\n"
         "⚠️ לשימוש כעזר מקצועי בלבד."
     )
@@ -366,18 +413,17 @@ st.markdown("## 🏗️ מוח הבנייה")
 st.caption("מפקח AI לבנייה • שאל כל שאלה • צרף תמונה מהשטח")
 
 if client is None:
-    st.error("⚠️ מפתח API לא מוגדר — עדכן ANTHROPIC_API_KEY.")
+    st.error("⚠️ מפתח API לא מוגדר.")
 
 # ── Chat history ───────────────────────────────────────────────────────────────
 for i, msg in enumerate(st.session_state.messages):
-    avatar = "👤" if msg["role"] == "user" else "🏗️"
+    avatar = "👤" if msg.get("role") == "user" else "🏗️"
     with st.chat_message(msg["role"], avatar=avatar):
-        # Show image label if this message had an image
         if msg.get("image_label"):
             st.caption(f"📷 {msg['image_label']}")
         st.markdown(msg["content"])
         if msg["role"] == "assistant":
-            c1, c2, _ = st.columns([2, 2, 6])
+            c1, _, _ = st.columns([2, 2, 6])
             with c1:
                 st.download_button(
                     "💾 שמור", data=msg["content"].encode("utf-8"),
@@ -385,7 +431,7 @@ for i, msg in enumerate(st.session_state.messages):
                     key=f"dl_{i}",
                 )
 
-# ── Export / clear (shown when there are messages) ─────────────────────────────
+# ── Export / clear ─────────────────────────────────────────────────────────────
 if st.session_state.messages:
     st.divider()
     ec1, ec2, _ = st.columns([3, 3, 4])
@@ -402,25 +448,26 @@ if st.session_state.messages:
             st.session_state.img_key += 1
             st.rerun()
 
-st.divider()
-
-# ── Image attachment area ──────────────────────────────────────────────────────
+# ── Pending image chip (shows above chat input when image is attached) ─────────
 if st.session_state.pending_image:
-    ic1, ic2 = st.columns([6, 1])
-    with ic1:
-        st.image(st.session_state.pending_image, width=220, caption="תמונה מצורפת לשאלה הבאה")
-    with ic2:
-        if st.button("✕", key="clear_img", help="הסר תמונה"):
+    chip_col, rm_col, _ = st.columns([2, 1, 7])
+    with chip_col:
+        st.image(st.session_state.pending_image, width=56)
+    with rm_col:
+        st.write("")  # vertical align
+        if st.button("✕ הסר", key="rm_img"):
             st.session_state.pending_image = None
             st.session_state.pending_image_type = None
             st.session_state.img_key += 1
             st.rerun()
-else:
+
+# ── File uploader — styled as inline 📎 button via CSS (only when no pending) ──
+if not st.session_state.pending_image:
     uploaded = st.file_uploader(
-        "📷 צרף תמונה מהשטח (JPG / PNG / WEBP)",
+        "צרף תמונה",
         type=["jpg", "jpeg", "png", "webp"],
         label_visibility="collapsed",
-        key=f"img_up_{st.session_state.img_key}",
+        key=f"img_{st.session_state.img_key}",
     )
     if uploaded:
         st.session_state.pending_image = uploaded.read()
@@ -437,38 +484,29 @@ if prompt := st.chat_input(placeholder):
     if client is None:
         st.error("אין חיבור ל-API.")
     else:
-        # Snapshot image before clearing
+        # Snapshot history BEFORE appending new message
+        prev_messages = list(st.session_state.messages)
+
         img_bytes = st.session_state.pending_image
         img_type  = st.session_state.pending_image_type
+        img_label = f"תמונה ({len(img_bytes)//1024} KB)" if img_bytes else None
 
-        # Determine image display label
-        img_label = None
-        if img_bytes:
-            size_kb = len(img_bytes) // 1024
-            img_label = f"תמונה ({size_kb} KB)"
-
-        # Add user message to history
         user_msg = {"role": "user", "content": prompt}
         if img_label:
             user_msg["image_label"] = img_label
         st.session_state.messages.append(user_msg)
 
-        # Show user bubble
         with st.chat_message("user", avatar="👤"):
             if img_label:
                 st.caption(f"📷 {img_label}")
             st.markdown(prompt)
 
-        # Get AI response
         with st.chat_message("assistant", avatar="🏗️"):
             with st.spinner("מעבד... ⏳"):
                 try:
                     answer = call_brain(
-                        client,
-                        st.session_state.messages,
-                        prompt,
-                        image_bytes=img_bytes,
-                        image_mime=img_type,
+                        client, prev_messages, prompt,
+                        image_bytes=img_bytes, image_mime=img_type,
                     )
                     answer = clean(answer)
                 except Exception as e:
@@ -482,10 +520,8 @@ if prompt := st.chat_input(placeholder):
                     key="dl_latest",
                 )
 
-        # Add assistant message + clear pending image
         st.session_state.messages.append({"role": "assistant", "content": answer})
         st.session_state.pending_image = None
         st.session_state.pending_image_type = None
         st.session_state.img_key += 1
-
         auto_save()

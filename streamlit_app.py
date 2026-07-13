@@ -6,7 +6,10 @@ Streamlit web app for field use (mobile-first, Hebrew RTL).
 import os
 import re
 import sys
+import json
+import uuid
 import threading
+import datetime
 from pathlib import Path
 
 import streamlit as st
@@ -20,7 +23,7 @@ st.set_page_config(
     page_title="מוח הבנייה",
     page_icon="🏗️",
     layout="centered",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="auto",
 )
 
 # ── Dark theme CSS + RTL ────────────────────────────────────────────────────────
@@ -58,7 +61,6 @@ h1, h2, h3, h4, p, li { text-align: right; direction: rtl; }
     direction: rtl;
     text-align: right;
 }
-/* User message - slightly different shade */
 [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
     background-color: #1c2128 !important;
     border-color: #388bfd40 !important;
@@ -142,17 +144,6 @@ hr { border-color: #30363d !important; }
     color: #c9d1d9 !important;
 }
 
-/* ── Tabs / segmented control ── */
-[data-testid="stTabs"] [data-baseweb="tab"] {
-    background-color: #21262d !important;
-    color: #8b949e !important;
-    border-radius: 8px 8px 0 0 !important;
-}
-[data-testid="stTabs"] [aria-selected="true"] {
-    background-color: #1f6feb !important;
-    color: #fff !important;
-}
-
 /* ── Expanders ── */
 [data-testid="stExpander"] {
     background-color: #161b22 !important;
@@ -164,6 +155,16 @@ hr { border-color: #30363d !important; }
 [data-testid="stChatMessage"] p { margin-bottom: 0.4em !important; }
 [data-testid="stChatMessage"] ul,
 [data-testid="stChatMessage"] ol { margin-top: 0.3em !important; }
+
+/* Sidebar conversation buttons */
+[data-testid="stSidebar"] .stButton button {
+    text-align: right !important;
+    direction: rtl !important;
+    font-size: 0.85em !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -202,99 +203,100 @@ def warm_pdf_index():
 
 warm_pdf_index()
 
+# ── Constants ──────────────────────────────────────────────────────────────────
+MODE_EMOJI = {"שאלה": "🔍", "עלויות": "🧮", "דוח": "📋"}
+CONVERSATIONS_FILE = PROJECT_ROOT / "data" / "conversations.json"
+
 # ── Session state ──────────────────────────────────────────────────────────────
-if "messages" not in st.session_state:
-    st.session_state.messages = []
 if "mode" not in st.session_state:
     st.session_state.mode = "שאלה"
+# Each mode has its own isolated message list
+if "mode_messages" not in st.session_state:
+    st.session_state.mode_messages = {"שאלה": [], "עלויות": [], "דוח": []}
+# Each mode tracks which saved conversation is currently loaded
+if "mode_active_id" not in st.session_state:
+    st.session_state.mode_active_id = {"שאלה": None, "עלויות": None, "דוח": None}
 
 
+# ── Persistence helpers ─────────────────────────────────────────────────────────
+def load_all_conversations():
+    if CONVERSATIONS_FILE.exists():
+        try:
+            with open(CONVERSATIONS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+
+def save_all_conversations(convos):
+    CONVERSATIONS_FILE.parent.mkdir(exist_ok=True)
+    try:
+        with open(CONVERSATIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(convos, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def auto_save_current():
+    """Save or update the current mode's conversation to disk."""
+    mode = st.session_state.mode
+    messages = st.session_state.mode_messages.get(mode, [])
+    if not messages:
+        return
+
+    convos = load_all_conversations()
+    convo_id = st.session_state.mode_active_id.get(mode)
+
+    first_user = next((m["content"] for m in messages if m["role"] == "user"), "")
+    title = (first_user[:45] + "...") if len(first_user) > 45 else first_user
+    now = datetime.datetime.now().isoformat()
+
+    if convo_id:
+        for c in convos:
+            if c["id"] == convo_id:
+                c["messages"] = messages
+                c["updated_at"] = now
+                c["title"] = title
+                save_all_conversations(convos)
+                return
+        # ID not in file anymore — fall through to create new
+        convo_id = None
+
+    # New conversation
+    convo_id = str(uuid.uuid4())
+    st.session_state.mode_active_id[mode] = convo_id
+    convos.insert(0, {
+        "id": convo_id,
+        "title": title,
+        "mode": mode,
+        "messages": messages,
+        "created_at": now,
+        "updated_at": now,
+    })
+    save_all_conversations(convos)
+
+
+# ── Utility ────────────────────────────────────────────────────────────────────
 def clean_text(text: str) -> str:
-    """Remove excessive blank lines from AI responses."""
     text = text.strip()
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text
 
 
-def export_conversation() -> str:
-    """Build a plain-text export of the full conversation."""
-    import datetime
-    lines = [f"שיחה עם מוח הבנייה — {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", "=" * 50, ""]
-    for msg in st.session_state.messages:
+def export_conversation(mode: str) -> str:
+    messages = st.session_state.mode_messages.get(mode, [])
+    ts = datetime.datetime.now().strftime('%d/%m/%Y %H:%M')
+    lines = [f"שיחה עם מוח הבנייה — {ts}", "=" * 50, ""]
+    for msg in messages:
         role = "אני" if msg["role"] == "user" else "מוח הבנייה"
         lines.append(f"[{role}]")
         lines.append(msg["content"])
         lines.append("")
     return "\n".join(lines)
 
-# ── Title ──────────────────────────────────────────────────────────────────────
-st.markdown("## 🏗️ מוח הבנייה")
-st.caption("עוזר AI לפיקוח בנייה • תקנים • עלויות • שטח")
 
-client = get_client()
-if client is None:
-    st.error("⚠️ מפתח API לא מוגדר. עדכן ANTHROPIC_API_KEY בקובץ .env ואז הפעל מחדש.")
-
-# ── Mode selector ──────────────────────────────────────────────────────────────
-col1, col2, col3 = st.columns(3)
-with col1:
-    if st.button("🔍 שאלה מקצועית", use_container_width=True,
-                 type="primary" if st.session_state.mode == "שאלה" else "secondary"):
-        st.session_state.mode = "שאלה"
-        st.rerun()
-with col2:
-    if st.button("🧮 הערכת עלויות", use_container_width=True,
-                 type="primary" if st.session_state.mode == "עלויות" else "secondary"):
-        st.session_state.mode = "עלויות"
-        st.rerun()
-with col3:
-    if st.button("📋 דוח ביקורת", use_container_width=True,
-                 type="primary" if st.session_state.mode == "דוח" else "secondary"):
-        st.session_state.mode = "דוח"
-        st.rerun()
-
-st.divider()
-
-# ── Chat history ───────────────────────────────────────────────────────────────
-for i, msg in enumerate(st.session_state.messages):
-    avatar = "👤" if msg["role"] == "user" else "🏗️"
-    with st.chat_message(msg["role"], avatar=avatar):
-        st.markdown(msg["content"])
-
-        if msg["role"] == "assistant":
-            # Export buttons per answer
-            btn_col1, btn_col2, btn_col3 = st.columns([2, 2, 6])
-            with btn_col1:
-                st.download_button(
-                    "💾 שמור",
-                    data=msg["content"].encode("utf-8"),
-                    file_name=f"תשובה_{i//2 + 1}.txt",
-                    mime="text/plain",
-                    key=f"dl_ans_{i}",
-                )
-            with btn_col2:
-                if st.button("📋 העתק", key=f"copy_{i}"):
-                    st.toast("✅ הועתק ללוח!")
-
-# ── Export full conversation ───────────────────────────────────────────────────
-if st.session_state.messages:
-    st.divider()
-    export_col1, export_col2, export_col3 = st.columns([3, 3, 4])
-    with export_col1:
-        st.download_button(
-            "📄 ייצא שיחה מלאה",
-            data=export_conversation().encode("utf-8"),
-            file_name="שיחה_מוח_הבנייה.txt",
-            mime="text/plain",
-        )
-    with export_col2:
-        if st.button("🗑️ נקה שיחה"):
-            st.session_state.messages = []
-            st.rerun()
-
-# ── Report helper ──────────────────────────────────────────────────────────────
 def _generate_report_text(findings: str, api_client) -> str:
-    import datetime
     today = datetime.date.today().strftime("%d/%m/%Y")
     prompt = f"""\
 אתה מפקח בנייה — עזור לי לכתוב ממצאי ביקורת.
@@ -327,16 +329,167 @@ def _generate_report_text(findings: str, api_client) -> str:
     return response.content[0].text.strip()
 
 
-# ── Input area ─────────────────────────────────────────────────────────────────
-mode = st.session_state.mode
+# ── Sidebar ────────────────────────────────────────────────────────────────────
+with st.sidebar:
+    current_mode = st.session_state.mode
 
+    if st.button("➕ שיחה חדשה", use_container_width=True, type="primary"):
+        st.session_state.mode_messages[current_mode] = []
+        st.session_state.mode_active_id[current_mode] = None
+        st.rerun()
+
+    st.markdown("---")
+    st.markdown("### 💬 שיחות שמורות")
+
+    convos = load_all_conversations()
+    if not convos:
+        st.caption("אין שיחות שמורות עדיין")
+    else:
+        for c in convos:
+            em = MODE_EMOJI.get(c.get("mode", ""), "💬")
+            cmode = c.get("mode", "שאלה")
+            is_active = (c["id"] == st.session_state.mode_active_id.get(cmode))
+            date_str = c.get("updated_at", "")[:10]
+
+            col_btn, col_del = st.columns([5, 1])
+            with col_btn:
+                label = f"{em} {c['title']}"
+                if st.button(
+                    label,
+                    key=f"load_{c['id']}",
+                    use_container_width=True,
+                    type="primary" if is_active else "secondary",
+                    help=f"{cmode} • {date_str}",
+                ):
+                    st.session_state.mode = cmode
+                    st.session_state.mode_messages[cmode] = list(c["messages"])
+                    st.session_state.mode_active_id[cmode] = c["id"]
+                    st.rerun()
+            with col_del:
+                if st.button("✕", key=f"del_{c['id']}", help="מחק שיחה"):
+                    new_convos = [x for x in convos if x["id"] != c["id"]]
+                    save_all_conversations(new_convos)
+                    if st.session_state.mode_active_id.get(cmode) == c["id"]:
+                        st.session_state.mode_messages[cmode] = []
+                        st.session_state.mode_active_id[cmode] = None
+                    st.rerun()
+
+    st.markdown("---")
+    st.markdown("### 📚 חיפוש תקן")
+    search_term = st.text_input("חפש לפי נושא / מספר ת\"י", key="std_search")
+    if search_term:
+        from standards.question_router import route_question
+        matches = route_question(search_term)
+        if matches:
+            for name, paths in matches[:5]:
+                with st.expander(name):
+                    for p in paths:
+                        st.caption(f"📄 {Path(p).name}")
+        else:
+            st.info("לא נמצאו תקנים מתאימים")
+
+    st.markdown("---")
+    st.markdown("### ℹ️ אודות")
+    st.caption(
+        "מוח הבנייה — עוזר AI לפיקוח בנייה.\n"
+        "מבוסס על:\n"
+        "• המפרט הכחול (51 פרקים)\n"
+        "• תקנים ישראליים סרוקים (123 PDF)\n"
+        "• תקנות תכנון ובנייה\n"
+        "• בסיס ידע הנדסי\n"
+        "• 18 דומיינים מקצועיים\n"
+        "• Claude Vision + Claude Sonnet\n\n"
+        "⚠️ לשימוש כעזר מקצועי בלבד.\n"
+        "תמיד אמת מול המסמך המקורי."
+    )
+
+
+# ── Main area ──────────────────────────────────────────────────────────────────
+client = get_client()
+
+st.markdown("## 🏗️ מוח הבנייה")
+st.caption("עוזר AI לפיקוח בנייה • תקנים • עלויות • שטח")
+
+if client is None:
+    st.error("⚠️ מפתח API לא מוגדר. עדכן ANTHROPIC_API_KEY בקובץ .env ואז הפעל מחדש.")
+
+# ── Mode selector ──────────────────────────────────────────────────────────────
+mode = st.session_state.mode
+col1, col2, col3 = st.columns(3)
+with col1:
+    if st.button("🔍 שאלה מקצועית", use_container_width=True,
+                 type="primary" if mode == "שאלה" else "secondary",
+                 key="btn_shela"):
+        if mode != "שאלה":
+            st.session_state.mode = "שאלה"
+            st.rerun()
+with col2:
+    if st.button("🧮 הערכת עלויות", use_container_width=True,
+                 type="primary" if mode == "עלויות" else "secondary",
+                 key="btn_uluyot"):
+        if mode != "עלויות":
+            st.session_state.mode = "עלויות"
+            st.rerun()
+with col3:
+    if st.button("📋 דוח ביקורת", use_container_width=True,
+                 type="primary" if mode == "דוח" else "secondary",
+                 key="btn_doc"):
+        if mode != "דוח":
+            st.session_state.mode = "דוח"
+            st.rerun()
+
+st.divider()
+
+# Isolated message list for this mode only
+messages = st.session_state.mode_messages[mode]
+
+# ── Chat history ───────────────────────────────────────────────────────────────
+for i, msg in enumerate(messages):
+    avatar = "👤" if msg["role"] == "user" else "🏗️"
+    with st.chat_message(msg["role"], avatar=avatar):
+        st.markdown(msg["content"])
+        if msg["role"] == "assistant":
+            btn_col1, btn_col2, _ = st.columns([2, 2, 6])
+            with btn_col1:
+                st.download_button(
+                    "💾 שמור",
+                    data=msg["content"].encode("utf-8"),
+                    file_name=f"תשובה_{i // 2 + 1}.txt",
+                    mime="text/plain",
+                    key=f"dl_ans_{i}",
+                )
+            with btn_col2:
+                if st.button("📋 העתק", key=f"copy_{i}"):
+                    st.toast("✅ הועתק ללוח!")
+
+# ── Export / clear buttons ─────────────────────────────────────────────────────
+if messages:
+    st.divider()
+    exp_col1, exp_col2, _ = st.columns([3, 3, 4])
+    with exp_col1:
+        st.download_button(
+            "📄 ייצא שיחה",
+            data=export_conversation(mode).encode("utf-8"),
+            file_name="שיחה_מוח_הבנייה.txt",
+            mime="text/plain",
+        )
+    with exp_col2:
+        if st.button("🗑️ נקה שיחה"):
+            st.session_state.mode_messages[mode] = []
+            st.session_state.mode_active_id[mode] = None
+            st.rerun()
+
+# ── Input area (mode-specific, isolated keys) ──────────────────────────────────
 if mode == "שאלה":
-    # Chat input — always at bottom, like WhatsApp
-    if prompt := st.chat_input("שאל שאלה מקצועית... (מעקה, כיסוי, בטון, ת\"י...)"):
+    # chat_input key is tied to mode so switching modes never carries over a value
+    if prompt := st.chat_input(
+        "שאל שאלה מקצועית... (מעקה, כיסוי, בטון, ת\"י...)",
+        key="chat_input_shela",
+    ):
         if client is None:
             st.error("אין חיבור ל-API.")
         else:
-            st.session_state.messages.append({"role": "user", "content": prompt})
+            messages.append({"role": "user", "content": prompt})
             with st.chat_message("user", avatar="👤"):
                 st.markdown(prompt)
 
@@ -349,9 +502,8 @@ if mode == "שאלה":
                     except Exception as e:
                         answer = f"⚠️ שגיאה: {e}"
                 st.markdown(answer)
-
-                btn_col1, btn_col2, _ = st.columns([2, 2, 6])
-                with btn_col1:
+                btn_c1, _, _ = st.columns([2, 2, 6])
+                with btn_c1:
                     st.download_button(
                         "💾 שמור",
                         data=answer.encode("utf-8"),
@@ -360,14 +512,14 @@ if mode == "שאלה":
                         key="dl_latest",
                     )
 
-            st.session_state.messages.append({"role": "assistant", "content": answer})
+            messages.append({"role": "assistant", "content": answer})
+            auto_save_current()
 
 else:
-    # Text area input for עלויות / דוח
     if mode == "עלויות":
         placeholder = "לדוגמא: מרפסת בטון 3×2 מ׳ קומה שלישית / ריצוף פורצלן 50 מ\"ר"
         button_label = "🧮 חשב עלות"
-        hint = "הערכת כמויות ועלויות • אינה מחליפה תכנון מהנדס"
+        hint = "הערכת כמויות ועלויות בשקלים • אינה מחליפה תכנון מהנדס"
     else:
         placeholder = "תאר את הממצאים מהביקורת — מה ראית בשטח?"
         button_label = "📋 צור דוח"
@@ -384,10 +536,12 @@ else:
 
     send_col, clear_col = st.columns([3, 1])
     with send_col:
-        send_clicked = st.button(button_label, use_container_width=True, type="primary")
+        send_clicked = st.button(button_label, use_container_width=True, type="primary",
+                                 key=f"send_{mode}")
     with clear_col:
-        if st.button("🗑️ נקה", use_container_width=True):
-            st.session_state.messages = []
+        if st.button("🗑️ נקה", use_container_width=True, key=f"clear_{mode}"):
+            st.session_state.mode_messages[mode] = []
+            st.session_state.mode_active_id[mode] = None
             st.rerun()
 
     if send_clicked and user_input.strip():
@@ -395,7 +549,7 @@ else:
             st.error("אין חיבור ל-API. עדכן את המפתח.")
         else:
             question = user_input.strip()
-            st.session_state.messages.append({"role": "user", "content": question})
+            messages.append({"role": "user", "content": question})
 
             with st.spinner("מעבד... ⏳"):
                 try:
@@ -408,35 +562,6 @@ else:
                 except Exception as e:
                     answer = f"⚠️ שגיאה: {e}"
 
-            st.session_state.messages.append({"role": "assistant", "content": answer})
+            messages.append({"role": "assistant", "content": answer})
+            auto_save_current()
             st.rerun()
-
-# ── Sidebar ────────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("### 📚 חיפוש תקן")
-    search_term = st.text_input("חפש לפי נושא / מספר ת\"י", key="std_search")
-    if search_term:
-        from standards.question_router import route_question
-        matches = route_question(search_term)
-        if matches:
-            for name, paths in matches[:5]:
-                with st.expander(name):
-                    for p in paths:
-                        st.caption(f"📄 {Path(p).name}")
-        else:
-            st.info("לא נמצאו תקנים מתאימים")
-
-    st.divider()
-    st.markdown("### ℹ️ אודות")
-    st.caption(
-        "מוח הבנייה — עוזר AI לפיקוח בנייה.\n"
-        "מבוסס על:\n"
-        "• המפרט הכחול (51 פרקים)\n"
-        "• תקנים ישראליים סרוקים (123 PDF)\n"
-        "• תקנות תכנון ובנייה\n"
-        "• בסיס ידע הנדסי\n"
-        "• 18 דומיינים מקצועיים\n"
-        "• Claude Vision + Claude Sonnet\n\n"
-        "⚠️ לשימוש כעזר מקצועי בלבד.\n"
-        "תמיד אמת מול המסמך המקורי."
-    )

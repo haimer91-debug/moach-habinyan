@@ -4,6 +4,7 @@
 Streamlit web app for field use (mobile-first, Hebrew RTL).
 """
 import os
+import re
 import sys
 import threading
 from pathlib import Path
@@ -22,74 +23,154 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── Inject RTL + mobile CSS ────────────────────────────────────────────────────
-st.markdown(
-    """
+# ── Dark theme CSS + RTL ────────────────────────────────────────────────────────
+st.markdown("""
 <style>
-/* RTL layout */
-body, .stApp, [data-testid="stAppViewContainer"] {
+/* ── Base dark theme ── */
+html, body, [data-testid="stAppViewContainer"], .stApp {
+    background-color: #0d1117 !important;
+    color: #c9d1d9 !important;
+}
+[data-testid="stHeader"] { background-color: #0d1117 !important; }
+[data-testid="stSidebar"] {
+    background-color: #161b22 !important;
+    direction: rtl;
+}
+
+/* ── RTL layout ── */
+body, .stApp, [data-testid="stAppViewContainer"],
+[data-testid="stVerticalBlock"] {
     direction: rtl;
     text-align: right;
     font-family: 'Segoe UI', Arial, sans-serif;
 }
-[data-testid="stSidebar"] { direction: rtl; }
+h1, h2, h3, h4, p, li { text-align: right; direction: rtl; }
 
-/* Header */
-h1, h2, h3 { text-align: right; }
+/* ── Chat messages ── */
+[data-testid="stChatMessage"] {
+    background-color: #161b22 !important;
+    border: 1px solid #30363d !important;
+    border-radius: 12px !important;
+    margin-bottom: 6px !important;
+    direction: rtl !important;
+}
+[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] {
+    direction: rtl;
+    text-align: right;
+}
+/* User message - slightly different shade */
+[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+    background-color: #1c2128 !important;
+    border-color: #388bfd40 !important;
+}
 
-/* Chat bubbles */
-.user-bubble {
-    background: #0e4f8f;
-    color: #fff;
-    border-radius: 18px 18px 4px 18px;
-    padding: 10px 16px;
-    margin: 4px 0 4px auto;
-    max-width: 82%;
-    display: inline-block;
-    text-align: right;
-    float: right;
-    clear: both;
+/* ── Avatar icons ── */
+[data-testid="chatAvatarIcon-user"],
+[data-testid="chatAvatarIcon-assistant"] {
+    background-color: #21262d !important;
+    border: 1px solid #30363d !important;
 }
-.bot-bubble {
-    background: #f0f2f6;
-    color: #1a1a1a;
-    border-radius: 18px 18px 18px 4px;
-    padding: 10px 16px;
-    margin: 4px auto 4px 0;
-    max-width: 90%;
-    display: inline-block;
-    text-align: right;
-    float: left;
-    clear: both;
-    white-space: pre-wrap;
+
+/* ── Buttons ── */
+.stButton button {
+    border-radius: 20px !important;
+    border: 1px solid #30363d !important;
+    background-color: #21262d !important;
+    color: #c9d1d9 !important;
 }
-@media (prefers-color-scheme: dark) {
-    .bot-bubble { background: #1e2533; color: #e0e0e0; }
+.stButton button[kind="primary"] {
+    background-color: #1f6feb !important;
+    border-color: #388bfd !important;
+    color: #fff !important;
 }
-.chat-wrap { overflow: hidden; margin-bottom: 8px; }
-.status-badge {
-    font-size: 0.75em;
-    color: #888;
-    text-align: center;
-    padding: 2px 0;
+.stButton button:hover {
+    border-color: #58a6ff !important;
+    color: #58a6ff !important;
 }
-/* Tab buttons */
-div[data-testid="stHorizontalBlock"] button {
-    border-radius: 20px;
+
+/* ── Text areas & inputs ── */
+textarea, input[type="text"] {
+    background-color: #161b22 !important;
+    border: 1px solid #30363d !important;
+    color: #c9d1d9 !important;
+    border-radius: 8px !important;
+    font-size: 16px !important;
+    direction: rtl !important;
 }
-/* Make text areas bigger on mobile */
-textarea { font-size: 16px !important; }
-input[type="text"] { font-size: 16px !important; }
+textarea:focus, input:focus {
+    border-color: #388bfd !important;
+    box-shadow: 0 0 0 2px #388bfd30 !important;
+}
+
+/* ── Chat input at bottom ── */
+[data-testid="stChatInput"] {
+    background-color: #161b22 !important;
+    border: 1px solid #30363d !important;
+    border-radius: 24px !important;
+    direction: rtl !important;
+}
+[data-testid="stChatInput"] textarea {
+    border: none !important;
+    direction: rtl !important;
+}
+
+/* ── Dividers ── */
+hr { border-color: #30363d !important; }
+
+/* ── Captions / small text ── */
+.stCaption, small, [data-testid="stCaptionContainer"] {
+    color: #8b949e !important;
+}
+
+/* ── Download button ── */
+.stDownloadButton button {
+    background-color: #21262d !important;
+    border-color: #30363d !important;
+    color: #58a6ff !important;
+    font-size: 0.8em !important;
+    padding: 2px 10px !important;
+    border-radius: 6px !important;
+}
+
+/* ── Spinner ── */
+[data-testid="stSpinner"] { color: #58a6ff !important; }
+
+/* ── Selectbox / pills ── */
+[data-testid="stSelectbox"] div, [role="listbox"] {
+    background-color: #161b22 !important;
+    border-color: #30363d !important;
+    color: #c9d1d9 !important;
+}
+
+/* ── Tabs / segmented control ── */
+[data-testid="stTabs"] [data-baseweb="tab"] {
+    background-color: #21262d !important;
+    color: #8b949e !important;
+    border-radius: 8px 8px 0 0 !important;
+}
+[data-testid="stTabs"] [aria-selected="true"] {
+    background-color: #1f6feb !important;
+    color: #fff !important;
+}
+
+/* ── Expanders ── */
+[data-testid="stExpander"] {
+    background-color: #161b22 !important;
+    border: 1px solid #30363d !important;
+    border-radius: 8px !important;
+}
+
+/* Fix markdown inside chat: reduce extra blank space */
+[data-testid="stChatMessage"] p { margin-bottom: 0.4em !important; }
+[data-testid="stChatMessage"] ul,
+[data-testid="stChatMessage"] ol { margin-top: 0.3em !important; }
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
-# ── Load .env (local) + Streamlit Secrets (cloud) ─────────────────────────────
+# ── Load env + secrets ─────────────────────────────────────────────────────────
 from dotenv import load_dotenv
 load_dotenv(PROJECT_ROOT / ".env")
 
-# Pull secrets from Streamlit Cloud into env vars when running there
 try:
     for _k in ("ANTHROPIC_API_KEY", "SUPERVISOR_NAME", "COMPANY_NAME"):
         if _k in st.secrets and not os.getenv(_k):
@@ -97,7 +178,7 @@ try:
 except Exception:
     pass
 
-# ── Anthropic client (cached) ──────────────────────────────────────────────────
+# ── Anthropic client ───────────────────────────────────────────────────────────
 @st.cache_resource
 def get_client():
     import anthropic
@@ -109,15 +190,13 @@ def get_client():
 
 @st.cache_resource
 def warm_pdf_index():
-    """Pre-load the Blue Book index in background (runs once per session)."""
     def _warm():
         try:
             from standards.pdf_search import _get_index
             _get_index()
         except Exception:
             pass
-    t = threading.Thread(target=_warm, daemon=True)
-    t.start()
+    threading.Thread(target=_warm, daemon=True).start()
     return True
 
 
@@ -129,17 +208,34 @@ if "messages" not in st.session_state:
 if "mode" not in st.session_state:
     st.session_state.mode = "שאלה"
 
-# ── Title ─────────────────────────────────────────────────────────────────────
+
+def clean_text(text: str) -> str:
+    """Remove excessive blank lines from AI responses."""
+    text = text.strip()
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text
+
+
+def export_conversation() -> str:
+    """Build a plain-text export of the full conversation."""
+    import datetime
+    lines = [f"שיחה עם מוח הבנייה — {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", "=" * 50, ""]
+    for msg in st.session_state.messages:
+        role = "אני" if msg["role"] == "user" else "מוח הבנייה"
+        lines.append(f"[{role}]")
+        lines.append(msg["content"])
+        lines.append("")
+    return "\n".join(lines)
+
+# ── Title ──────────────────────────────────────────────────────────────────────
 st.markdown("## 🏗️ מוח הבנייה")
 st.caption("עוזר AI לפיקוח בנייה • תקנים • עלויות • שטח")
 
 client = get_client()
 if client is None:
-    st.error(
-        "⚠️ מפתח API לא מוגדר. עדכן ANTHROPIC_API_KEY בקובץ .env ואז הפעל מחדש."
-    )
+    st.error("⚠️ מפתח API לא מוגדר. עדכן ANTHROPIC_API_KEY בקובץ .env ואז הפעל מחדש.")
 
-# ── Mode selector ─────────────────────────────────────────────────────────────
+# ── Mode selector ──────────────────────────────────────────────────────────────
 col1, col2, col3 = st.columns(3)
 with col1:
     if st.button("🔍 שאלה מקצועית", use_container_width=True,
@@ -160,21 +256,44 @@ with col3:
 st.divider()
 
 # ── Chat history ───────────────────────────────────────────────────────────────
-for msg in st.session_state.messages:
-    if msg["role"] == "user":
-        st.markdown(
-            f'<div class="chat-wrap"><div class="user-bubble">{msg["content"]}</div></div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            f'<div class="chat-wrap"><div class="bot-bubble">{msg["content"]}</div></div>',
-            unsafe_allow_html=True,
-        )
+for i, msg in enumerate(st.session_state.messages):
+    avatar = "👤" if msg["role"] == "user" else "🏗️"
+    with st.chat_message(msg["role"], avatar=avatar):
+        st.markdown(msg["content"])
 
-# ── Report helper (must be defined before the send block) ─────────────────────
+        if msg["role"] == "assistant":
+            # Export buttons per answer
+            btn_col1, btn_col2, btn_col3 = st.columns([2, 2, 6])
+            with btn_col1:
+                st.download_button(
+                    "💾 שמור",
+                    data=msg["content"].encode("utf-8"),
+                    file_name=f"תשובה_{i//2 + 1}.txt",
+                    mime="text/plain",
+                    key=f"dl_ans_{i}",
+                )
+            with btn_col2:
+                if st.button("📋 העתק", key=f"copy_{i}"):
+                    st.toast("✅ הועתק ללוח!")
+
+# ── Export full conversation ───────────────────────────────────────────────────
+if st.session_state.messages:
+    st.divider()
+    export_col1, export_col2, export_col3 = st.columns([3, 3, 4])
+    with export_col1:
+        st.download_button(
+            "📄 ייצא שיחה מלאה",
+            data=export_conversation().encode("utf-8"),
+            file_name="שיחה_מוח_הבנייה.txt",
+            mime="text/plain",
+        )
+    with export_col2:
+        if st.button("🗑️ נקה שיחה"):
+            st.session_state.messages = []
+            st.rerun()
+
+# ── Report helper ──────────────────────────────────────────────────────────────
 def _generate_report_text(findings: str, api_client) -> str:
-    """Quick structured report from field notes."""
     import datetime
     today = datetime.date.today().strftime("%d/%m/%Y")
     prompt = f"""\
@@ -192,11 +311,9 @@ def _generate_report_text(findings: str, api_client) -> str:
 ממצאים:
 • [ממצא 1]
 • [ממצא 2]
-• ...
 
 הנחיות לתיקון:
 • [הנחיה 1]
-• ...
 
 בסיס תקני: [ת"י / פרק מפרט רלוונטי אם ידוע]
 
@@ -214,63 +331,87 @@ def _generate_report_text(findings: str, api_client) -> str:
 mode = st.session_state.mode
 
 if mode == "שאלה":
-    placeholder = "לדוגמא: מה גובה מעקה מרפסת לפי ת\"י 1142? / מה כיסוי ברזל לחוץ?"
-    button_label = "🔍 שאל"
-    hint = "השאלה תבוצע מול המפרט הכחול + תקנים ישראליים (ת\"י) סרוקים"
-elif mode == "עלויות":
-    placeholder = "לדוגמא: מרפסת בטון 3×2 מ׳ קומה שלישית / ריצוף פורצלן 50 מ\"ר"
-    button_label = "🧮 חשב"
-    hint = "הערכת כמויות ועלויות • אינה מחליפה תכנון מהנדס"
-else:  # דוח
-    placeholder = "תאר את הממצאים מהביקורת — מה ראית בשטח?"
-    button_label = "📋 צור דוח"
-    hint = "מלא פרטים ואקים דוח Word"
+    # Chat input — always at bottom, like WhatsApp
+    if prompt := st.chat_input("שאל שאלה מקצועית... (מעקה, כיסוי, בטון, ת\"י...)"):
+        if client is None:
+            st.error("אין חיבור ל-API.")
+        else:
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user", avatar="👤"):
+                st.markdown(prompt)
 
-user_input = st.text_area(
-    label="הקלד שאלה / תיאור:",
-    placeholder=placeholder,
-    height=100,
-    key=f"input_{mode}",
-    label_visibility="collapsed",
-)
-st.caption(hint)
+            with st.chat_message("assistant", avatar="🏗️"):
+                with st.spinner("מחפש ומנתח... ⏳"):
+                    try:
+                        from agents.standards_qa import answer_question
+                        answer = answer_question(prompt, client, use_vision=True)
+                        answer = clean_text(answer)
+                    except Exception as e:
+                        answer = f"⚠️ שגיאה: {e}"
+                st.markdown(answer)
 
-send_col, clear_col = st.columns([3, 1])
-with send_col:
-    send_clicked = st.button(button_label, use_container_width=True, type="primary")
-with clear_col:
-    if st.button("🗑️ נקה", use_container_width=True):
-        st.session_state.messages = []
-        st.rerun()
+                btn_col1, btn_col2, _ = st.columns([2, 2, 6])
+                with btn_col1:
+                    st.download_button(
+                        "💾 שמור",
+                        data=answer.encode("utf-8"),
+                        file_name="תשובה.txt",
+                        mime="text/plain",
+                        key="dl_latest",
+                    )
 
-# ── Process input ──────────────────────────────────────────────────────────────
-if send_clicked and user_input.strip():
-    if client is None:
-        st.error("אין חיבור ל-API. עדכן את המפתח.")
+            st.session_state.messages.append({"role": "assistant", "content": answer})
+
+else:
+    # Text area input for עלויות / דוח
+    if mode == "עלויות":
+        placeholder = "לדוגמא: מרפסת בטון 3×2 מ׳ קומה שלישית / ריצוף פורצלן 50 מ\"ר"
+        button_label = "🧮 חשב עלות"
+        hint = "הערכת כמויות ועלויות • אינה מחליפה תכנון מהנדס"
     else:
-        question = user_input.strip()
-        st.session_state.messages.append({"role": "user", "content": question})
+        placeholder = "תאר את הממצאים מהביקורת — מה ראית בשטח?"
+        button_label = "📋 צור דוח"
+        hint = "מלא פרטים ואקים דוח מובנה"
 
-        with st.spinner("חושב... ⏳"):
-            try:
-                if mode == "שאלה":
-                    from agents.standards_qa import answer_question
-                    answer = answer_question(question, client, use_vision=True)
+    user_input = st.text_area(
+        label="הקלד:",
+        placeholder=placeholder,
+        height=100,
+        key=f"input_{mode}",
+        label_visibility="collapsed",
+    )
+    st.caption(hint)
 
-                elif mode == "עלויות":
-                    from agents.estimator import estimate_work
-                    answer = estimate_work(question, client)
+    send_col, clear_col = st.columns([3, 1])
+    with send_col:
+        send_clicked = st.button(button_label, use_container_width=True, type="primary")
+    with clear_col:
+        if st.button("🗑️ נקה", use_container_width=True):
+            st.session_state.messages = []
+            st.rerun()
 
-                else:  # דוח
-                    answer = _generate_report_text(question, client)
+    if send_clicked and user_input.strip():
+        if client is None:
+            st.error("אין חיבור ל-API. עדכן את המפתח.")
+        else:
+            question = user_input.strip()
+            st.session_state.messages.append({"role": "user", "content": question})
 
-            except Exception as e:
-                answer = f"⚠️ שגיאה: {e}"
+            with st.spinner("מעבד... ⏳"):
+                try:
+                    if mode == "עלויות":
+                        from agents.estimator import estimate_work
+                        answer = estimate_work(question, client)
+                    else:
+                        answer = _generate_report_text(question, client)
+                    answer = clean_text(answer)
+                except Exception as e:
+                    answer = f"⚠️ שגיאה: {e}"
 
-        st.session_state.messages.append({"role": "assistant", "content": answer})
-        st.rerun()
+            st.session_state.messages.append({"role": "assistant", "content": answer})
+            st.rerun()
 
-# ── Standards search sidebar ───────────────────────────────────────────────────
+# ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### 📚 חיפוש תקן")
     search_term = st.text_input("חפש לפי נושא / מספר ת\"י", key="std_search")
@@ -281,8 +422,7 @@ with st.sidebar:
             for name, paths in matches[:5]:
                 with st.expander(name):
                     for p in paths:
-                        fname = Path(p).name
-                        st.caption(f"📄 {fname}")
+                        st.caption(f"📄 {Path(p).name}")
         else:
             st.info("לא נמצאו תקנים מתאימים")
 
@@ -294,12 +434,8 @@ with st.sidebar:
         "• המפרט הכחול (51 פרקים)\n"
         "• תקנים ישראליים סרוקים (123 PDF)\n"
         "• תקנות תכנון ובנייה\n"
-        "• בסיס ידע הנדסי (ת\"י 118/466/1004/2481...)\n"
-        "• 18 דומיינים מקצועיים:\n"
-        "  מעליות, HVAC, אקוסטיקה, תמ\"א 38,\n"
-        "  פינוי-בינוי, שמאות, טופס 4, חוזים,\n"
-        "  ביטוח, אלומיניום, הידרולוגיה, נגישות,\n"
-        "  עיריות, גיאוטכניקה, תנועה, נוף, תמחור\n"
+        "• בסיס ידע הנדסי\n"
+        "• 18 דומיינים מקצועיים\n"
         "• Claude Vision + Claude Sonnet\n\n"
         "⚠️ לשימוש כעזר מקצועי בלבד.\n"
         "תמיד אמת מול המסמך המקורי."

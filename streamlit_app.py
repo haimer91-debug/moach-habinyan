@@ -198,27 +198,78 @@ warm_pdf_index()
 # ── Knowledge bases ────────────────────────────────────────────────────────────
 @st.cache_resource
 def _load_kb():
+    kb = {}
     try:
-        from standards.engineering_kb import COSTS_2026
-        from standards.professional_kb import QUANTITY_SURVEYING
-        return COSTS_2026, QUANTITY_SURVEYING
+        from standards.engineering_kb import (
+            STRUCTURAL_RC, STEEL_REBAR, FORMWORK, LOADS,
+            WATERPROOFING, PLASTER_INSULATION, FLOORING,
+            PLUMBING, ELECTRICAL, FIRE_SAFETY, RAILINGS,
+            FOUNDATIONS, QUALITY_CONTROL, COSTS_2026,
+            STAIRS, GREEN_BUILDING, HOT_WEATHER_CONCRETING,
+            TOLERANCES_CRACKS,
+        )
+        kb.update({
+            "STRUCTURAL_RC": STRUCTURAL_RC, "STEEL_REBAR": STEEL_REBAR,
+            "FORMWORK": FORMWORK, "LOADS": LOADS,
+            "WATERPROOFING": WATERPROOFING, "PLASTER_INSULATION": PLASTER_INSULATION,
+            "FLOORING": FLOORING, "PLUMBING": PLUMBING,
+            "ELECTRICAL": ELECTRICAL, "FIRE_SAFETY": FIRE_SAFETY,
+            "RAILINGS": RAILINGS, "FOUNDATIONS": FOUNDATIONS,
+            "QUALITY_CONTROL": QUALITY_CONTROL, "COSTS_2026": COSTS_2026,
+            "STAIRS": STAIRS, "GREEN_BUILDING": GREEN_BUILDING,
+            "HOT_WEATHER_CONCRETING": HOT_WEATHER_CONCRETING,
+            "TOLERANCES_CRACKS": TOLERANCES_CRACKS,
+        })
     except Exception:
-        return "", ""
+        pass
+    try:
+        from standards.professional_kb import (
+            ACOUSTICS, ELEVATORS, HVAC, URBAN_RENEWAL,
+            REAL_ESTATE_LEVY, BUILDING_PERMITS, CONSTRUCTION_CONTRACTS,
+            CONSTRUCTION_INSURANCE, ALUMINUM, HYDROLOGY,
+            SITE_MANAGEMENT, ACCESSIBILITY, MUNICIPAL_CONDITIONS,
+            GEOTECHNICAL, TRAFFIC_CONSULTING, LANDSCAPE_INTERIOR,
+            QUANTITY_SURVEYING,
+        )
+        kb.update({
+            "ACOUSTICS": ACOUSTICS, "ELEVATORS": ELEVATORS,
+            "HVAC": HVAC, "URBAN_RENEWAL": URBAN_RENEWAL,
+            "REAL_ESTATE_LEVY": REAL_ESTATE_LEVY, "BUILDING_PERMITS": BUILDING_PERMITS,
+            "CONSTRUCTION_CONTRACTS": CONSTRUCTION_CONTRACTS,
+            "CONSTRUCTION_INSURANCE": CONSTRUCTION_INSURANCE,
+            "ALUMINUM": ALUMINUM, "HYDROLOGY": HYDROLOGY,
+            "SITE_MANAGEMENT": SITE_MANAGEMENT, "ACCESSIBILITY": ACCESSIBILITY,
+            "MUNICIPAL_CONDITIONS": MUNICIPAL_CONDITIONS, "GEOTECHNICAL": GEOTECHNICAL,
+            "TRAFFIC_CONSULTING": TRAFFIC_CONSULTING,
+            "LANDSCAPE_INTERIOR": LANDSCAPE_INTERIOR,
+            "QUANTITY_SURVEYING": QUANTITY_SURVEYING,
+        })
+    except Exception:
+        pass
+    try:
+        from standards.planning_regs import PLANNING_REGULATIONS
+        kb["PLANNING_REGULATIONS"] = PLANNING_REGULATIONS
+    except Exception:
+        pass
+    return kb
 
-COSTS_2026, QUANTITY_SURVEYING = _load_kb()
+_KB = _load_kb()
+_ALL_KB = "\n\n".join(_KB.values())
 
 _SYSTEM = f"""\
 אתה מוח הבנייה — עוזר AI מקצועי לפיקוח בנייה בישראל.
 
 אתה בקיא ב:
 • תקנות תכנון ובנייה — גובה, חניה, נגישות, רישוי, שימוש חורג
-• תקנים ישראליים (ת"י) — בטון ת"י 118/466, ברזל, אינסטלציה, חשמל, בידוד, מעקות
+• תקנים ישראליים (ת"י) — בטון ת"י 118/466, ברזל, אינסטלציה, חשמל, בידוד, מעקות, כיבוי אש
 • המפרט הכחול — 51 פרקי ביצוע ופיקוח
 • הנדסת קונסטרוקציה: לוחות, קורות, עמודים, מרפסות, יסודות
 • איטום, ניקוז, גמר: ריצוף, טיח, צביעה, חיפוי
 • זיהוי ליקויים בשטח: סדקים, רטיבות, כשלי ביצוע, חריגות מתקן
 • כתיבת דוחות ביקורת מקצועיים
 • הערכת כמויות ועלויות — מחירי שוק ישראל 2025-2026
+• כיבוי אש, ספרינקלרים, גלאים, גישה לנכה
+• היתרי בנייה, תמ"א 38, היטל השבחה, טופס 4
 
 כשמשתמש שולח תמונה:
 • נתח לעומק מנקודת מבט הנדסית: חומרים, מצב, ליקויים, חריגות
@@ -228,17 +279,20 @@ _SYSTEM = f"""\
 
 כשמשתמש מבקש הערכת עלות:
 • חשב כמויות בדיוק (הראה נוסחה ומספרים)
-• תן מחירים בשקלים (₪) עם טווח מינ'–מקס' לפי הטבלאות שלהלן
+• תן מחירים בשקלים (₪) עם טווח מינ'–מקס'
 • פרט לפי פריטי עבודה
 
 כשמשתמש מבקש דוח ביקורת:
 • פרמט מקצועי: נושא, ממצאים, הנחיות תיקון, בסיס תקני, סטטוס
 
 ענה תמיד בעברית. היה ישיר, מדויק, מקצועי.
+כשיש מידע בבסיס הידע שלהלן — צטט סעיפים מדויקים. אל תאמר "אין לי גישה" אם המידע כן קיים למטה.
 
-{COSTS_2026}
+══════════════════════════════════════════════════
+בסיס הידע המקצועי המלא — ישראל
+══════════════════════════════════════════════════
 
-{QUANTITY_SURVEYING}
+{_ALL_KB}
 """
 
 # ── Persistence ────────────────────────────────────────────────────────────────

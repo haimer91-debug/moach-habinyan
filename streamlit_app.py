@@ -295,25 +295,29 @@ _SYSTEM = f"""\
 {_ALL_KB}
 """
 
-# ── Persistence ────────────────────────────────────────────────────────────────
-CONVOS_FILE = PROJECT_ROOT / "data" / "conversations.json"
+# ── Persistence — browser localStorage (survives app restarts on Streamlit Cloud)
+from streamlit_local_storage import LocalStorage
+
+_LS_KEY = "moach_convos_v1"
+
+def _ls():
+    return LocalStorage()
 
 def load_convos():
-    if CONVOS_FILE.exists():
-        try:
-            with open(CONVOS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
+    # Session cache — avoid calling LS component more than once per session
+    if "convos_cache" in st.session_state:
+        return st.session_state.convos_cache
+    data = _ls().getItem(_LS_KEY)
+    # getItem returns None on the very first render cycle (component not yet ready)
+    if isinstance(data, list):
+        st.session_state.convos_cache = data
+        return data
+    st.session_state.convos_cache = []
     return []
 
 def save_convos(convos):
-    CONVOS_FILE.parent.mkdir(exist_ok=True)
-    try:
-        with open(CONVOS_FILE, "w", encoding="utf-8") as f:
-            json.dump(convos, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    st.session_state.convos_cache = convos
+    _ls().setItem(_LS_KEY, convos)
 
 def _serialisable(msgs):
     out = []

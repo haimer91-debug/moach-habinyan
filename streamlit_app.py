@@ -382,7 +382,7 @@ def export_txt() -> str:
         lines += [f"[{role}]", m.get("content", ""), ""]
     return "\n".join(lines)
 
-def call_brain(client, prev_messages, user_text, image_bytes=None, image_mime=None):
+def call_brain(client, prev_messages, user_text, file_bytes=None, file_mime=None):
     """prev_messages = conversation history BEFORE the new message."""
     api_msgs = []
     for m in prev_messages:
@@ -391,14 +391,25 @@ def call_brain(client, prev_messages, user_text, image_bytes=None, image_mime=No
         if role in ("user", "assistant") and content:
             api_msgs.append({"role": role, "content": content})
 
-    # New user message (with optional image)
-    if image_bytes:
-        b64 = base64.standard_b64encode(image_bytes).decode()
+    # New user message (with optional image or PDF)
+    if file_bytes:
+        b64 = base64.standard_b64encode(file_bytes).decode()
+        is_pdf = file_mime == "application/pdf"
+        if is_pdf:
+            file_block = {
+                "type": "document",
+                "source": {"type": "base64", "media_type": "application/pdf", "data": b64},
+            }
+            default_prompt = "נתח את המסמך מנקודת מבט מפקח בנייה. פרט ממצאים, תקנים רלוונטיים וכל נקודה חשובה."
+        else:
+            file_block = {
+                "type": "image",
+                "source": {"type": "base64", "media_type": file_mime, "data": b64},
+            }
+            default_prompt = "נתח את התמונה מנקודת מבט מפקח בנייה. זהה ליקויים, חריגות, מצב הביצוע."
         user_content = [
-            {"type": "image",
-             "source": {"type": "base64", "media_type": image_mime, "data": b64}},
-            {"type": "text",
-             "text": user_text or "נתח את התמונה מנקודת מבט מפקח בנייה. זהה ליקויים, חריגות, מצב הביצוע."},
+            file_block,
+            {"type": "text", "text": user_text or default_prompt},
         ]
     else:
         user_content = user_text
@@ -410,6 +421,7 @@ def call_brain(client, prev_messages, user_text, image_bytes=None, image_mime=No
         max_tokens=2000,
         system=_SYSTEM,
         messages=api_msgs,
+        betas=["pdfs-2024-09-25"],
     )
     return resp.content[0].text.strip()
 
@@ -506,24 +518,29 @@ if st.session_state.messages:
             st.session_state.img_key += 1
             st.rerun()
 
-# ── Pending image chip (shows above chat input when image is attached) ─────────
+# ── Pending file chip (image thumbnail or PDF label) ──────────────────────────
 if st.session_state.pending_image:
-    chip_col, rm_col, _ = st.columns([2, 1, 7])
+    is_pdf = st.session_state.pending_image_type == "application/pdf"
+    chip_col, rm_col, _ = st.columns([3, 1, 6])
     with chip_col:
-        st.image(st.session_state.pending_image, width=56)
+        if is_pdf:
+            size_kb = len(st.session_state.pending_image) // 1024
+            st.markdown(f'<div class="img-chip">📄 קובץ PDF ({size_kb} KB)</div>', unsafe_allow_html=True)
+        else:
+            st.image(st.session_state.pending_image, width=56)
     with rm_col:
-        st.write("")  # vertical align
+        st.write("")
         if st.button("✕ הסר", key="rm_img"):
             st.session_state.pending_image = None
             st.session_state.pending_image_type = None
             st.session_state.img_key += 1
             st.rerun()
 
-# ── File uploader — styled as inline 📎 button via CSS (only when no pending) ──
+# ── File uploader — accepts images AND PDFs ────────────────────────────────────
 if not st.session_state.pending_image:
     uploaded = st.file_uploader(
-        "צרף תמונה",
-        type=["jpg", "jpeg", "png", "webp"],
+        "צרף קובץ",
+        type=["jpg", "jpeg", "png", "webp", "pdf"],
         label_visibility="collapsed",
         key=f"img_{st.session_state.img_key}",
     )
@@ -533,10 +550,11 @@ if not st.session_state.pending_image:
         st.rerun()
 
 # ── Chat input ─────────────────────────────────────────────────────────────────
-placeholder = (
-    "כתוב שאלה לגבי התמונה..." if st.session_state.pending_image
-    else "שאל על תקנים, עלויות, ליקויים, דוחות..."
-)
+if st.session_state.pending_image:
+    _is_pdf = st.session_state.pending_image_type == "application/pdf"
+    placeholder = "שאל שאלה לגבי המסמך..." if _is_pdf else "כתוב שאלה לגבי התמונה..."
+else:
+    placeholder = "שאל על תקנים, עלויות, ליקויים, דוחות..."
 
 if prompt := st.chat_input(placeholder):
     if client is None:
@@ -545,18 +563,24 @@ if prompt := st.chat_input(placeholder):
         # Snapshot history BEFORE appending new message
         prev_messages = list(st.session_state.messages)
 
-        img_bytes = st.session_state.pending_image
-        img_type  = st.session_state.pending_image_type
-        img_label = f"תמונה ({len(img_bytes)//1024} KB)" if img_bytes else None
+        file_bytes = st.session_state.pending_image
+        file_type  = st.session_state.pending_image_type
+        if file_bytes:
+            is_pdf = file_type == "application/pdf"
+            file_label = f"PDF ({len(file_bytes)//1024} KB)" if is_pdf else f"תמונה ({len(file_bytes)//1024} KB)"
+            file_icon  = "📄" if is_pdf else "📷"
+        else:
+            file_label = None
+            file_icon  = None
 
         user_msg = {"role": "user", "content": prompt}
-        if img_label:
-            user_msg["image_label"] = img_label
+        if file_label:
+            user_msg["image_label"] = f"{file_icon} {file_label}"
         st.session_state.messages.append(user_msg)
 
         with st.chat_message("user", avatar="👤"):
-            if img_label:
-                st.caption(f"📷 {img_label}")
+            if file_label:
+                st.caption(f"{file_icon} {file_label}")
             st.markdown(prompt)
 
         with st.chat_message("assistant", avatar="🏗️"):
@@ -564,7 +588,7 @@ if prompt := st.chat_input(placeholder):
                 try:
                     answer = call_brain(
                         client, prev_messages, prompt,
-                        image_bytes=img_bytes, image_mime=img_type,
+                        file_bytes=file_bytes, file_mime=file_type,
                     )
                     answer = clean(answer)
                 except Exception as e:
